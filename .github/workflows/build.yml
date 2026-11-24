@@ -1,0 +1,63 @@
+# tunnel-toolchain-test — CI build.
+#
+# Proves the deferred upgrade stack works together (AGP 9.1.0 +
+# Gradle 9.1.0 + SDK 37 + Kotlin 2.3.21 + KSP 2.3.14 + Hilt 2.59 +
+# Room 2.8.5 + Compose BOM 2026.11.01) before it is ever applied to
+# tunnel-app. No Go, no libbox — a plain single-module Android app.
+#
+# IMPORTANT: workflow files cannot be uploaded through the GitHub API
+# (403). Upload this file through the github.com website instead:
+# repository → .github/workflows/build.yml → "Add file" → "Upload files".
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6.3.0
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4.0.4
+
+      - name: Install Android platform 37 + build-tools
+        run: |
+          # compileSdk is 37 in the app module (and the app pins
+          # build-tools 37.0.0), so android-37 + build-tools 37.0.0
+          # must be installed — the SDK setup alone is not enough.
+          sdkmanager "platforms;android-37" "build-tools;37.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6.4.1
+
+      - name: Restore executable bit (web uploads strip it)
+        run: chmod +x gradlew
+
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest --stacktrace
+
+      - name: Build debug APK
+        run: ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Report APK size
+        run: |
+          ls -lh app/build/outputs/apk/debug/*.apk
+          du -h app/build/outputs/apk/debug/*.apk
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: toolchain-test-debug
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
